@@ -1,0 +1,21 @@
+##[pylyzer] failed /home/jepi/Documents/NSDSYST-MCO2/trial.py 1752610427 575
+.requests = pyimport "requests"
+
+.___v_desugar_1 = pyimport "bs4"
+.bs4 = pyimport "bs4"
+.BeautifulSoup: {bs4.BeautifulSoup}
+.decode_cfemail: (cfemail: global::Indexable(Obj, Never)) -> Str
+.url: {"https:..www.dlsu.edu.ph.university-fellows."}
+.response: NoneType
+.soup: Never
+.emails: global::List!(Str, 0)
+
+.cfemail: NoneType
+
+.decoded: Never
+
+
+
+
+
+
