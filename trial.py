@@ -19,8 +19,9 @@ def email_collection(soup):
         cfemail = tag.get("data-cfemail")
         if cfemail:
             decoded = decode_cfemail(cfemail)
-            print(decoded)
-            emails.append(decoded)
+            if decoded not in emails:
+                print(decoded)
+                emails.append(decoded)
 
 
 def page_finder(response):
@@ -31,18 +32,23 @@ def page_finder(response):
     # print("Number of links found: ", len(found_links))
     # print("Links found:")
     for link in found_links:
-        if link not in visited:
+        if link not in visited and link not in links_to_visit:
             if link[-1] == "/":
                 links_to_visit.append(link)
 
 
 def main():
     for link in links_to_visit:
-        print("Current link: ", link)
-        response = requests.get(link)
-        soup = BeautifulSoup(response.text, "lxml", features="xml")
-        email_collection(soup)
-        page_finder(response)
+        if link not in visited:
+            visited.append(link)
+            print("Current link: ", link)
+            try:
+                response = requests.get(link)
+                soup = BeautifulSoup(response.text, "lxml")
+                email_collection(soup)
+                page_finder(response)
+            except:
+                print("Error encountered when visiting!")
 
 
 main()
