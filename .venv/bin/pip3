@@ -1,4 +1,4 @@
-#!/home/jepi/Documents/NSDSYST-MCO2/.venv/bin/python3
+#!/Users/jpmisagal/Documents/NSDSYST/WebScraper/NSDSYST-WebScraper/.venv/bin/python3.13
 # -*- coding: utf-8 -*-
 import re
 import sys
