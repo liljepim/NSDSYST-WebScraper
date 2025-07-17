@@ -1,0 +1,26 @@
+##[pylyzer] failed /home/jepi/Documents/NSDSYST-MCO2/Worker.py 1752684371 2570
+.re: Never
+
+.warnings: Never
+
+.___v_desugar_1: Never
+.Lock: Never
+.Manager: Never
+.Process: Never
+.Queue: Never
+.requests = pyimport "requests"
+
+.___v_desugar_2 = pyimport "bs4"
+.bs4 = pyimport "bs4"
+.BeautifulSoup: {bs4.BeautifulSoup}
+.XMLParsedAsHTMLWarning: {_warnings.XMLParsedAsHTMLWarning}
+
+.worker: |E: Type, K: Type, T: Type, Type_195378 <: Structural({.append = (self: Obj, ?195488) -> ?T; .__contains__ = (self: Never, ?R) -> Bool and (self: Never, ?R) -> Bool}), Type_195488: Type, R: Type, Self <: global::Indexable(?K, ?E)|(email_list: Type_195378, link_queue: Structural({.put = (self: Obj, Self) -> T; .get = (self: Obj, timeout := Obj) -> R}), visited_list: Structural({.append = (self: Obj, R) -> Never; .__contains__ = (self: Never, Self) -> Bool}), email_lock: Structural(global::ContextManager), visited_lock: Structural(global::ContextManager), worker_id: Obj) -> NoneType
+.main: () -> NoneType
+
+
+
+> NoneType
+
+
+

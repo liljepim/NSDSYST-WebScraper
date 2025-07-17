@@ -1,0 +1,21 @@
+##[pylyzer] failed /home/jepi/Documents/NSDSYST-MCO2/trial2.py 1752682160 2317
+.re: Never
+
+.___v_desugar_1: Never
+.Lock: Never
+.Manager: Never
+.Process: Never
+.Queue: Never
+.requests = pyimport "requests"
+
+.___v_desugar_2 = pyimport "bs4"
+.bs4 = pyimport "bs4"
+.BeautifulSoup: {bs4.BeautifulSoup}
+.worker: |T: Type, O <: Bool, Type_148876 :> {"."}, Type_148848 :> Str, R <: Structural({.endswith = (self: Obj, Type_148876) -> Type_148877}), R :> Bool, R :> Str, Type_148877 <: Structural({.__and__ = (self: Never, R) -> O}), R: Type, Type_148736 <: Structural({.append = (self: Obj, Type_148848) -> T; .__contains__ = (self: Never, R) -> Bool and (self: Never, R) -> Bool})|(email_list: Type_148736, link_queue: Structural({.put = (self: Obj, R) -> T; .get = (self: Obj, timeout := Obj) -> R}), visited_list: Structural({.append = (self: Obj, R) -> Never; .__contains__ = (self: Never, R) -> Bool}), email_lock: Structural(global::ContextManager), worker_id: Obj) -> NoneType
+.main: () -> NoneType
+
+
+
+
+
+
