@@ -1,0 +1,28 @@
+##[pylyzer] failed /home/jepi/Documents/NSDSYST-MCO2/async_client.py 1752799128 3255
+.asyncio: Never
+
+.aiohttp = pyimport "aiohttp"
+
+.___v_desugar_1 = pyimport "bs4"
+.bs4 = pyimport "bs4"
+.BeautifulSoup: {bs4.BeautifulSoup}
+.XMLParsedAsHTMLWarning: {_warnings.XMLParsedAsHTMLWarning}
+
+.EMAIL_REGEX: {"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\\.[a-zA-Z0-9-.]+"}
+.LINK_REGEX: {"https?:..(?:[a-zA-Z0-9.-]+\\.)?dlsu[^\\s\\\"\'>)]+"}
+.WorkerNode: ClassType
+.WorkerNode.email_list: Never
+.WorkerNode.link_queue: Never
+.WorkerNode.email_lock: Never
+.WorkerNode.visited_list: Never
+.WorkerNode.visited_lock: Never
+.WorkerNode.worker_id: Never
+.WorkerNode.__call__: (email_list: Obj, visited_list: Obj, link_queue: Obj, email_lock: Obj, visited_lock: Obj, worker_id: Obj) -> async_client.WorkerNode
+.WorkerNode.decode_cfemail: (cfemail: global::Indexable(Obj, Never)) -> Str
+.WorkerNode.collect_emails: (self: async_client.WorkerNode, html: Obj) -> NoneType
+.WorkerNode.extract_links: (self: async_client.WorkerNode, html: Obj) -> NoneType
+.WorkerNode.fetch_and_process: (self: async_client.WorkerNode, session: global::List(NoneType, _: Nat) or global::GenericDict or global::Indexable(Obj, Never), url: Obj) -> NoneType
+.WorkerNode.worker_loop: (self: async_client.WorkerNode) -> NoneType
+.WorkerNode.run: (self: async_client.WorkerNode) -> NoneType
+.WorkerNode.start: (self: async_client.WorkerNode) -> NoneType
+
