@@ -1,3 +1,4 @@
+import argparse
 import json
 import socket
 from multiprocessing import Lock, Manager, Process
@@ -96,4 +97,40 @@ def start_master():
 
 
 if __name__ == "__main__":
-    start_master()
+    parser = argparse.ArgumentParser(prog="WebScraper v1.0")
+    parser.add_argument(
+        "--host",
+        help="Specify the IP Address of the Host Machine [Default = localhost]",
+        default="localhost",
+    )
+    parser.add_argument(
+        "-n",
+        "--nodes",
+        help="Specify the Maximum Number of nodes [Default=5]",
+        default=5,
+    )
+    parser.add_argument(
+        "--csv",
+        help="Specify the name of the file of the generated CSV [Default=emails.csv]",
+        default="email.csv",
+    )
+    parser.add_argument(
+        "-s",
+        "--seed",
+        help="Specify the starting link [Default=https://www.dlsu.edu.ph/]",
+        default="https://www.dlsu.edu.ph",
+    )
+    parser.add_argument(
+        "-t",
+        "--time",
+        help="Specify the duration that the program will execute in minutes [Default=5]",
+        default=5,
+    )
+
+    try:
+        args = parser.parse_args()
+        print("Arguments", args)
+    except:
+        parser.print_help()
+
+    # start_master()
