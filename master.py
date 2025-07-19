@@ -3,9 +3,6 @@ import json
 import socket
 from multiprocessing import Lock, Manager, Process
 
-HOST = "localhost"
-PORT = 9090
-
 
 def handle_worker(
     conn,
@@ -16,6 +13,8 @@ def handle_worker(
     email_lock,
     visited_lock,
     queue_lock,
+    nodes,
+    duration,
 ):
     print(f"[Master] Connected to {addr}")
     try:
@@ -24,7 +23,7 @@ def handle_worker(
             batch = []
             with visited_lock:
                 with queue_lock:
-                    while not link_queue.empty() and len(batch) < 5:
+                    while not link_queue.empty() and len(batch) < nodes:
                         link = link_queue.get()
                         if link not in visited_list:
                             visited_list.append(link)
@@ -60,7 +59,7 @@ def handle_worker(
         conn.close()
 
 
-def start_master():
+def start_master(host, port, nodes, nodes, csv_name, seed, duration):
     manager = Manager()
     email_list = manager.list()
     visited_list = manager.list()
@@ -70,13 +69,13 @@ def start_master():
     visited_lock = Lock()
     queue_lock = Lock()
 
-    link_queue.put("https://www.dlsu.edu.ph")
+    link_queue.put(seed)
 
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind((HOST, PORT))
+        s.bind((host, port))
         s.listen()
 
-        print(f"[Master] Listening on {HOST}:{PORT}")
+        print(f"[Master] Listening on {host}:{port}")
 
         while True:
             conn, addr = s.accept()
@@ -91,6 +90,8 @@ def start_master():
                     email_lock,
                     visited_lock,
                     queue_lock,
+                    nodes,
+                    duration,
                 ),
             )
             p.start()
@@ -102,6 +103,11 @@ if __name__ == "__main__":
         "--host",
         help="Specify the IP Address of the Host Machine [Default = localhost]",
         default="localhost",
+    )
+    parser.add_argument(
+        "--port",
+        help="Specify the Port of the Master Node [Default = 9090]",
+        default=9090,
     )
     parser.add_argument(
         "-n",
@@ -133,4 +139,4 @@ if __name__ == "__main__":
     except:
         parser.print_help()
 
-    # start_master()
+    start_master()
