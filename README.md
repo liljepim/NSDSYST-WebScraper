@@ -2,6 +2,7 @@
 
 ## Project Structure
 
+```
 Master
 ├--Worker1
 | ├--Task1 (url1)
@@ -15,6 +16,7 @@ Master
 | ├--Task3 (urln+3)
 | ├--Task4 (urln+4)
 | ├--Taskn (urln+5)
+```
 
 ## Installing Dependencies
 
