@@ -1,5 +1,0 @@
-##[pylyzer] failed /home/jepi/Documents/NSDSYST-MCO2/async-client.py 1752772682 120
-.asyncio: Never
-
-.main: () -> NoneType
-
