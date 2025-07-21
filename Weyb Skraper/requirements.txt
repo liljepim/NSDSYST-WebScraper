@@ -1,6 +1,0 @@
-requests
-beautifulsoup4
-pandas
-multiprocessing
-pytest
-pdfminer.six   
