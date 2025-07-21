@@ -1,86 +1,116 @@
+import asyncio
+import json
 import re
+import socket
+import time
 import warnings
-from multiprocessing import Lock, Manager, Process, Queue
 
-import requests
+import aiohttp
 from bs4 import BeautifulSoup, XMLParsedAsHTMLWarning
 
 warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
+EMAIL_REGEX = r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+"
+LINK_REGEX = r"https?://(?:[a-zA-Z0-9.-]+\.)?dlsu[^\s\"'>)]+"
 
 
-def worker(email_list, link_queue, visited_list, email_lock, visited_lock, worker_id):
-    def email_collection(soup):
-        def decode_cfemail(cfemail):
-            r = int(cfemail[:2], 16)
-            return "".join(
-                chr(int(cfemail[i : i + 2], 16) ^ r) for i in range(2, len(cfemail), 2)
-            )
+class WorkerNode:
+    def __init__(self, host, port):
+        self.host = host
+        self.port = port
 
+    def decode_cfemail(self, cfemail):
+        r = int(cfemail[:2], 16)
+        return "".join(
+            chr(int(cfemail[i : i + 2], 16) ^ r) for i in range(2, len(cfemail), 2)
+        )
+
+    def collect_emails(self, html):
+        soup = BeautifulSoup(html, "lxml")
+        emails = set()
+
+        # First with cloudflare protected ones
         for tag in soup.find_all("a", class_="__cf_email__"):
             cfemail = tag.get("data-cfemail")
             if cfemail:
-                decoded = decode_cfemail(cfemail)
-                if decoded not in email_list:
-                    print(decoded)
-                    email_list.append(decoded)
+                emails.add(self.decode_cfemail(cfemail))
 
-    def page_finder(response):
-        # print(response.status_code)
-        found_links = re.findall(
-            r"https?://(?:[a-zA-Z0-9.-]+\.)?dlsu[^\s\"'>)]+", response.text
-        )
-        # print("Number of links found: ", len(found_links))
-        # print("Links found:")
+        # Next the plain texts
+        emails.update(re.findall(EMAIL_REGEX, html))
+        return list(emails)
+
+    def extract_links(self, html):
+        found_links = re.findall(LINK_REGEX, html)
+        final_links = set()
         for link in found_links:
-            if link not in visited_list:
-                if link[-1] == "/":
-                    link_queue.put(link)
+            if link[-1] == "/":
+                final_links.add(link)
+        return list(final_links)
 
-    while True:
+    async def fetch_url(self, session, url):
         try:
-            curr_url = link_queue.get(timeout=3)
-        except:
-            break
+            async with session.get(url, timeout=10) as response:
+                if response.status == 200:
+                    html = await response.text()
+                    return html
+        except Exception as e:
+            print(f"[Error] {url}: {e}")
+        return ""
 
-        with visited_lock:
-            if curr_url not in visited_list:
-                visited_list.append(curr_url)
-                try:
-                    # print(f"Process {worker_id} visiting {curr_url}")
-                    response = requests.get(curr_url, timeout=5, allow_redirects=False)
-                    soup = BeautifulSoup(response.text, "lxml")
-                    with email_lock:
-                        email_collection(soup)
-                    page_finder(response)
-                except Exception as e:
-                    print(f"Process {worker_id} encountered error: {e}")
+    async def worker_loop(self):
+        while True:
+            try:
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                    s.connect((self.host, self.port))
+
+                    data = s.recv(4)
+                    duration = int.from_bytes(data, byteorder="big", signed=True) * 60
+
+                    start_time = time.time()
+                    while time.time() - start_time < duration:
+                        # We gotta get the batch of links first bruv
+                        data = b""
+                        while not data.endswith(b"\n"):
+                            data += s.recv(4096)
+                        urls = json.loads(data.decode())["links"]
+
+                        if not urls:
+                            await asyncio.sleep(2)
+                            continue
+
+                        emails_found = set()
+                        links_found = set()
+
+                        async with aiohttp.ClientSession() as session:
+                            tasks = [self.fetch_url(session, url) for url in urls]
+                            html_pages = await asyncio.gather(*tasks)
+
+                            for html in html_pages:
+                                emails_found.update(self.collect_emails(html))
+                                links_found.update(self.extract_links(html))
+
+                        result = (
+                            json.dumps(
+                                {
+                                    "emails": list(emails_found),
+                                    "links": list(links_found),
+                                }
+                            ).encode()
+                            + b"\n"
+                        )
+
+                        s.sendall(result)
+
+                    end_time = time.time()
+                    print(f"Total time ran: {end_time - start_time}")
+                    return
+            except Exception as e:
+                print(f"[Worker] Disconnected or error: {e}")
+                await asyncio.sleep(3)
+
+    def start(self):
+        asyncio.run(self.worker_loop())
 
 
-def main():
-    manager = Manager()
-    email_list = manager.list()
-    link_queue = Queue()
-    link_queue.put("https://www.dlsu.edu.ph/")
-    visited_list = manager.list()
-
-    email_lock = Lock()
-    visited_lock = Lock()
-
-    processes = []
-
-    for i in range(15):
-        p = Process(
-            target=worker,
-            args=(email_list, link_queue, visited_list, email_lock, visited_lock, i),
-        )
-        p.start()
-        processes.append(p)
-
-    for p in processes:
-        p.join()
-
-
-try:
-    main()
-except:
-    print("Process Terminated")
+if __name__ == "__main__":
+    worker = WorkerNode("localhost", 9090)
+    worker.start()

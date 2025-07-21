@@ -1,11 +1,11 @@
 # NSDSYST: Distributed Web-Scraper
 
-## Project Structure
+## System Structure
 
 ```
 Master
 ├--Worker1
-| ├--Task1 (url1)
+| ├--Task1 -> url1, url2, url3, url4, url5
 | ├--Task2 (url2)
 | ├--Task3 (url3)
 | ├--Task4 (url4)
@@ -16,6 +16,7 @@ Master
 | ├--Task3 (urln+3)
 | ├--Task4 (urln+4)
 | ├--Taskn (urln+5)
+└-- Unlimited number of workers
 ```
 
 ## Installing Dependencies
