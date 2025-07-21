@@ -15,7 +15,7 @@
 .BeautifulSoup: {bs4.BeautifulSoup}
 .XMLParsedAsHTMLWarning: {_warnings.XMLParsedAsHTMLWarning}
 
-.worker: |E: Type, K: Type, T: Type, Type_195378 <: Structural({.append = (self: Obj, ?195488) -> ?T; .__contains__ = (self: Never, ?R) -> Bool and (self: Never, ?R) -> Bool}), Type_195488: Type, R: Type, Self <: global::Indexable(?K, ?E)|(email_list: Type_195378, link_queue: Structural({.put = (self: Obj, Self) -> T; .get = (self: Obj, timeout := Obj) -> R}), visited_list: Structural({.append = (self: Obj, R) -> Never; .__contains__ = (self: Never, Self) -> Bool}), email_lock: Structural(global::ContextManager), visited_lock: Structural(global::ContextManager), worker_id: Obj) -> NoneType
+.worker: |E: Type, K: Type, T: Type, Type_1366134 <: Structural({.append = (self: Obj, ?1366244) -> ?T; .__contains__ = (self: Never, ?R) -> Bool and (self: Never, ?R) -> Bool}), Self <: global::Indexable(?K, ?E), Type_1366244: Type, R: Type|(email_list: Type_1366134, link_queue: Structural({.put = (self: Obj, Self) -> T; .get = (self: Obj, timeout := Obj) -> R}), visited_list: Structural({.append = (self: Obj, R) -> Never; .__contains__ = (self: Never, Self) -> Bool}), email_lock: Structural(global::ContextManager), visited_lock: Structural(global::ContextManager), worker_id: Obj) -> NoneType
 .main: () -> NoneType
 
 

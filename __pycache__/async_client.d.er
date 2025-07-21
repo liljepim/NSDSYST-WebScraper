@@ -1,5 +1,15 @@
-##[pylyzer] failed /home/jepi/Documents/NSDSYST-MCO2/async_client.py 1752799128 3255
+##[pylyzer] failed /home/jepi/Documents/NSDSYST-MCO2/async_client.py 1752956726 3891
 .asyncio: Never
+
+.json: Never
+
+.re: Never
+
+.socket: Never
+
+.time: Never
+
+.warnings: Never
 
 .aiohttp = pyimport "aiohttp"
 
@@ -11,18 +21,22 @@
 .EMAIL_REGEX: {"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\\.[a-zA-Z0-9-.]+"}
 .LINK_REGEX: {"https?:..(?:[a-zA-Z0-9.-]+\\.)?dlsu[^\\s\\\"\'>)]+"}
 .WorkerNode: ClassType
-.WorkerNode.email_list: Never
-.WorkerNode.link_queue: Never
-.WorkerNode.email_lock: Never
-.WorkerNode.visited_list: Never
-.WorkerNode.visited_lock: Never
-.WorkerNode.worker_id: Never
-.WorkerNode.__call__: (email_list: Obj, visited_list: Obj, link_queue: Obj, email_lock: Obj, visited_lock: Obj, worker_id: Obj) -> async_client.WorkerNode
-.WorkerNode.decode_cfemail: (cfemail: global::Indexable(Obj, Never)) -> Str
-.WorkerNode.collect_emails: (self: async_client.WorkerNode, html: Obj) -> NoneType
-.WorkerNode.extract_links: (self: async_client.WorkerNode, html: Obj) -> NoneType
-.WorkerNode.fetch_and_process: (self: async_client.WorkerNode, session: global::List(NoneType, _: Nat) or global::GenericDict or global::Indexable(Obj, Never), url: Obj) -> NoneType
+.WorkerNode.port: Never
+.WorkerNode.host: Never
+.WorkerNode.__call__: (host: Obj, port: Obj) -> async_client.WorkerNode
+.WorkerNode.decode_cfemail: (self: async_client.WorkerNode, cfemail: global::Indexable(Obj, Never)) -> Str
+.WorkerNode.collect_emails: (self: async_client.WorkerNode, html: Obj) -> global::List!(Never, _: Nat)
+.WorkerNode.extract_links: (self: async_client.WorkerNode, html: Obj) -> global::List!(Never, _: Nat)
+.WorkerNode.fetch_url: (self: async_client.WorkerNode, session: global::List(NoneType, _: Nat) or global::GenericDict or global::Indexable(Obj, Never), url: Obj) -> {""}
 .WorkerNode.worker_loop: (self: async_client.WorkerNode) -> NoneType
-.WorkerNode.run: (self: async_client.WorkerNode) -> NoneType
+.WorkerNode.start: (self: async_client.WorkerNode) -> NoneType
+
+
+async_client = pyimport "async_client"
+.worker: .WorkerNode
+
+
+
+Node) -> NoneType
 .WorkerNode.start: (self: async_client.WorkerNode) -> NoneType
 

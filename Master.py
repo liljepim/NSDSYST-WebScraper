@@ -1,6 +1,9 @@
 import argparse
+import csv
 import json
 import socket
+import struct
+import time
 from multiprocessing import Lock, Manager, Process
 
 
@@ -18,6 +21,9 @@ def handle_worker(
 ):
     print(f"[Master] Connected to {addr}")
     try:
+        # Set the duration of the connection
+        conn.sendall(struct.pack("!i", duration))
+
         while True:
             # Batch of 5 links cause why not
             batch = []
@@ -59,26 +65,79 @@ def handle_worker(
         conn.close()
 
 
-def start_master(host, port, nodes, nodes, csv_name, seed, duration):
+def process_emails(email_list):
+    processed_emails = []
+    for email in email_list:
+        status = ""
+        email_parts = email.split("@")
+        email_name = ""
+        office = ""
+        department = ""
+        unit = ""
+        if email_parts[1] == "dlsu.edu.ph":
+            first_part = email_parts[0].split(".")
+            if len(first_part) >= 2:
+                status = "name"
+            if status == "name":
+                for name in first_part:
+                    email_name += name.capitalize()
+            else:
+                department = first_part[0].capitalize()
+            processed_emails.append([email, email_name, office, department, unit])
+
+    return processed_emails
+
+
+def create_csv(email_list, csv_name):
+    with open(csv_name, "w", newline="") as file:
+        writer = csv.writer(file)
+        # Write the header [Name, Office Departmer, Unit]
+        writer.writerow(["Email", "Name", "Office", "Department", "Unit"])
+        processed_emails = process_emails(email_list)
+        for email in processed_emails:
+            writer.writerow(email)
+
+
+def start_master(host, port, nodes, csv_name, seed, duration):
     manager = Manager()
     email_list = manager.list()
     visited_list = manager.list()
     link_queue = manager.Queue()
 
+    is_started = False
+    start_time = 0
     email_lock = Lock()
     visited_lock = Lock()
     queue_lock = Lock()
 
+    process_list = []
     link_queue.put(seed)
 
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind((host, port))
         s.listen()
+        s.settimeout(1)
 
         print(f"[Master] Listening on {host}:{port}")
 
         while True:
-            conn, addr = s.accept()
+            if is_started and time.time() - start_time > (duration * 60):
+                print("[Master] Search Finished")
+                print(
+                    f"[Master] Total Elapsed Time: {
+                        ((time.time() - start_time) / 60):.2f}"
+                )
+                break
+
+            try:
+                conn, addr = s.accept()
+            except socket.timeout:
+                continue
+
+            if not is_started:
+                is_started = True
+                start_time = time.time()
+
             p = Process(
                 target=handle_worker,
                 args=(
@@ -95,6 +154,22 @@ def start_master(host, port, nodes, nodes, csv_name, seed, duration):
                 ),
             )
             p.start()
+            process_list.append(p)
+
+        for p in process_list:
+            p.terminate()
+            p.join()
+
+        print(f"Total Number of Emails Found: {len(email_list)}")
+        print("Exporting to CSV...")
+        create_csv(email_list, csv_name)
+        print(f"Results successfully exported to {csv_name}")
+
+        return
+
+
+def main(args):
+    start_master(args.host, args.port, args.nodes, args.csv, args.seed, args.time)
 
 
 if __name__ == "__main__":
@@ -108,12 +183,14 @@ if __name__ == "__main__":
         "--port",
         help="Specify the Port of the Master Node [Default = 9090]",
         default=9090,
+        type=int,
     )
     parser.add_argument(
         "-n",
         "--nodes",
         help="Specify the Maximum Number of nodes [Default=5]",
         default=5,
+        type=int,
     )
     parser.add_argument(
         "--csv",
@@ -131,12 +208,7 @@ if __name__ == "__main__":
         "--time",
         help="Specify the duration that the program will execute in minutes [Default=5]",
         default=5,
+        type=int,
     )
 
-    try:
-        args = parser.parse_args()
-        print("Arguments", args)
-    except:
-        parser.print_help()
-
-    start_master()
+    main(parser.parse_args())

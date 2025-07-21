@@ -1,0 +1,39 @@
+##[pylyzer] failed /home/jepi/Documents/NSDSYST-MCO2/master.py 1753014066 4229
+.argparse: Never
+
+.json: Never
+
+.socket: Never
+
+.struct: Never
+
+.time: Never
+
+.___v_desugar_1: Never
+.Lock: Never
+.Manager: Never
+.Process: Never
+.handle_worker: |R: Type, R <: Float, O: Type, Type_1362020: Type, Type_1361825 <: Structural({.close = (self: Obj) -> ?1362020; .recv = (self: Obj, ?1361951) -> ?R; .sendall = (self: Obj, ?O) -> ?1361876 and (self: Obj, ?O) -> ?1361942}), Type_1361951: Type, Type_1361876: Type, Type_1361942: Type|(conn: Type_1361825, addr: Obj, email_list: Structural({.append = (self: Obj, R) -> Never; .__contains__ = (self: Never, R) -> Bool}), visited_list: Structural({.append = (self: Obj, R) -> Never; .__contains__ = (self: Never, R) -> Bool}), link_queue: Structural({.get = (self: Obj) -> R; .put = (self: Obj, R) -> Never; .empty = (self: Obj) -> Obj}), email_lock: Structural(global::ContextManager), visited_lock: Structural(global::ContextManager), queue_lock: Structural(global::ContextManager), nodes: R, duration: Obj) -> Never
+.start_master: (host: Obj, port: Obj, nodes: Obj, csv_name: Obj, seed: Obj, duration: Obj) -> NoneType
+
+.parser: Never
+
+
+
+
+
+
+.args: Never
+
+
+
+
+
+
+: Never
+
+
+
+
+
+
