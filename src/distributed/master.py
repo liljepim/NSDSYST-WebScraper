@@ -1,17 +1,22 @@
-import socket
+import argparse
+import json
+import queue
 import threading
 import time
-import argparse
-import queue
-from src.scraper import Scraper
-from src.utils import save_to_csv, log_statistics
 from urllib.parse import urlparse
-import json
+
+import pika
+
+from src.scraper import Scraper
+from src.utils import log_statistics, save_to_csv
 
 # Default output file name for scraped emails
-OUTPUT_FILENAME = 'scraped_emails.csv'
+OUTPUT_FILENAME = "scraped_emails.csv"
 
 DLSU_DOMAINS = ["dlsu.edu.ph"]
+URL_QUEUE = "url_queue"
+RESULT_QUEUE = "result_queue"
+
 
 def is_dlsu_url(url):
     try:
@@ -20,14 +25,16 @@ def is_dlsu_url(url):
     except Exception:
         return False
 
+
 def recv_all(sock, n):
-    data = b''
+    data = b""
     while len(data) < n:
         packet = sock.recv(n - len(data))
         if not packet:
             return None
         data += packet
     return data
+
 
 class Master:
     def __init__(self, seed_urls, port=5000, time_limit_minutes=1, urls_per_batch=5):
@@ -46,38 +53,134 @@ class Master:
         self.running = True
         self.active_workers = 0
         self.worker_stats = {}  # Track worker performance
+        self.credentials = pika.PlainCredentials("rabbituser", "rabbit1234")
+        self.connection = pika.BlockingConnection(
+            pika.ConnectionParameters("localhost", 5672, "/", self.credentials)
+        )
+        self.channel = self.connection.channel()
+        self.channel.queue_declare(queue=URL_QUEUE)
+        self.channel.queue_declare(queue=RESULT_QUEUE)
+        self.result_connection = pika.BlockingConnection(
+            pika.ConnectionParameters("localhost", 5672, "/", self.credentials)
+        )
+        self.result_channel = self.result_connection.channel()
+        self.result_channel.queue_declare(queue=URL_QUEUE)
+        self.result_channel.queue_declare(queue=RESULT_QUEUE)
+
+    def result_callback(self, ch, method, properties, body):
+        try:
+            # Parse results
+            results = json.loads(body.decode())
+
+            # Use lock to ensure thread safety
+            with self.lock:
+                if isinstance(results, dict) and "results" in results:
+                    # Go over every email scraped and append to results list
+                    for entry in results["results"]:
+                        if entry["email"] not in {r["email"] for r in self.results}:
+                            self.results.append(entry)
+
+                    # Add new discovered links to queue
+                    if "links" in results and isinstance(results["links"], list):
+                        for link in results["links"]:
+                            if is_dlsu_url(link) and link not in self.visited:
+                                self.url_queue.put(link)
+                                print(f"[MASTER] Added new URL to queue: {link}")
+                elif isinstance(results, list):
+                    for entry in results:
+                        if entry["email"] not in {r["email"] for r in self.results}:
+                            self.results.append(entry)
+
+        except Exception as e:
+            print(f"[ERROR] {e}")
+
+    def stop_consume(self):
+        if hasattr(self, "result_channel") and self.result_channel.is_open:
+            self.result_channel.stop_consuming()
+        if hasattr(self, "result_connection") and self.result_connection.is_open:
+            self.result_connection.close()
+
+    def get_results(self):
+        self.result_channel.basic_consume(
+            queue=RESULT_QUEUE, on_message_callback=self.result_callback, auto_ack=True
+        )
+        try:
+            self.result_channel.start_consuming()
+        except pika.exceptions.ChannelClosedByBroker:
+            print("[MASTER] Result consumer stopped.")
+
+    # def start(self):
+    #     self.start_time = time.time()
+    #     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    #     server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    #     server.bind(("", self.port))
+    #     server.listen(50)  # Increased backlog for unlimited workers
+    #     print(f"[MASTER] Listening on port {self.port}...")
+    #     print(f"[MASTER] URLs per batch: {self.urls_per_batch}")
+    #     print("[MASTER] Accepting unlimited workers for maximum scalability")
+    #     threads = []
+    #     while (time.time() - (self.start_time or 0)) < self.time_limit:
+    #         server.settimeout(1)
+    #         try:
+    #             client, addr = server.accept()
+    #             print(f"[MASTER] Worker connected from {addr}")
+    #             self.active_workers += 1
+    #             t = threading.Thread(target=self.handle_worker, args=(client, addr))
+    #             t.start()
+    #             threads.append(t)
+    #         except socket.timeout:
+    #             continue
+    #     self.running = False
+    #     for t in threads:
+    #         t.join()
+    #     self.finish()
 
     def start(self):
         self.start_time = time.time()
-        server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        server.bind(("", self.port))
-        server.listen(50)  # Increased backlog for unlimited workers
-        print(f"[MASTER] Listening on port {self.port}...")
-        print(f"[MASTER] URLs per batch: {self.urls_per_batch}")
-        print(f"[MASTER] Accepting unlimited workers for maximum scalability")
-        threads = []
+        sub_thread = threading.Thread(target=self.get_results, daemon=True)
+        sub_thread.start()
         while (time.time() - (self.start_time or 0)) < self.time_limit:
-            server.settimeout(1)
-            try:
-                client, addr = server.accept()
-                print(f"[MASTER] Worker connected from {addr}")
-                self.active_workers += 1
-                t = threading.Thread(target=self.handle_worker, args=(client, addr))
-                t.start()
-                threads.append(t)
-            except socket.timeout:
-                continue
+            if not self.url_queue.empty():
+                batch = []
+                while not self.url_queue.empty() and len(batch) < self.urls_per_batch:
+                    curr_url = self.url_queue.get()
+                    if curr_url not in self.visited:
+                        self.visited.add(curr_url)
+                        batch.append(curr_url)
+
+                if batch:
+                    message = json.dumps({"urls": batch, "batch_id": len(self.visited)})
+                    self.channel.basic_publish(
+                        exchange="", routing_key=URL_QUEUE, body=message.encode()
+                    )
+
+                if not batch:
+                    # Check if time limit is reached
+                    if (time.time() - (self.start_time or 0)) >= self.time_limit:
+                        self.channel.basic_publish(
+                            exchange="", routing_key=URL_QUEUE, body=b"NOURL\n"
+                        )
+                        break
+                    # Otherwise wait and check again
+                    self.channel.basic_publish(
+                        exchange="", routing_key=URL_QUEUE, body=b"WAIT\n"
+                    )
+                    time.sleep(2)  # Wait 2 seconds before checking again
+                    continue
         self.running = False
-        for t in threads:
-            t.join()
+        self.stop_consume()
+        sub_thread.join()
         self.finish()
 
     def handle_worker(self, client, addr):
         client.settimeout(15)  # Increased timeout for batch processing
         worker_id = f"{addr[0]}:{addr[1]}"
-        self.worker_stats[worker_id] = {"urls_processed": 0, "emails_found": 0, "start_time": time.time()}
-        
+        self.worker_stats[worker_id] = {
+            "urls_processed": 0,
+            "emails_found": 0,
+            "start_time": time.time(),
+        }
+
         while self.running and (time.time() - (self.start_time or 0)) < self.time_limit:
             try:
                 # Assign a batch of URLs
@@ -91,7 +194,7 @@ class Master:
                                 urls_batch.append(candidate)
                         else:
                             break
-                
+
                 if not urls_batch:
                     # Check if time limit is reached
                     if (time.time() - (self.start_time or 0)) >= self.time_limit:
@@ -101,55 +204,71 @@ class Master:
                     client.sendall(b"WAIT\n")
                     time.sleep(2)  # Wait 2 seconds before checking again
                     continue
-                
+
                 # Send batch of URLs
-                batch_data = json.dumps({"urls": urls_batch, "batch_id": len(self.visited)})
+                batch_data = json.dumps(
+                    {"urls": urls_batch, "batch_id": len(self.visited)}
+                )
                 client.sendall((batch_data + "\n").encode())
-                
+
                 # Receive results
                 length_bytes = recv_all(client, 4)
                 if not length_bytes:
                     break
-                length = int.from_bytes(length_bytes, 'big')
+                length = int.from_bytes(length_bytes, "big")
                 data = recv_all(client, length)
                 if not data:
                     break
-                
+
                 try:
                     results = json.loads(data.decode())
                     with self.lock:
                         # Update worker stats
-                        self.worker_stats[worker_id]["urls_processed"] += len(urls_batch)
-                        
+                        self.worker_stats[worker_id]["urls_processed"] += len(
+                            urls_batch
+                        )
+
                         # Process results
                         if isinstance(results, dict) and "results" in results:
                             for entry in results["results"]:
-                                if entry['email'] not in {r['email'] for r in self.results}:
+                                if entry["email"] not in {
+                                    r["email"] for r in self.results
+                                }:
                                     self.results.append(entry)
-                            self.worker_stats[worker_id]["emails_found"] += len(results["results"])
-                            
+                            self.worker_stats[worker_id]["emails_found"] += len(
+                                results["results"]
+                            )
+
                             # Add new discovered links to queue
-                            if 'links' in results and isinstance(results['links'], list):
-                                for link in results['links']:
+                            if "links" in results and isinstance(
+                                results["links"], list
+                            ):
+                                for link in results["links"]:
                                     if is_dlsu_url(link) and link not in self.visited:
                                         self.url_queue.put(link)
-                                        print(f"[MASTER] Added new URL to queue: {link}")
+                                        print(
+                                            f"[MASTER] Added new URL to queue: {link}"
+                                        )
                         elif isinstance(results, list):
                             for entry in results:
-                                if entry['email'] not in {r['email'] for r in self.results}:
+                                if entry["email"] not in {
+                                    r["email"] for r in self.results
+                                }:
                                     self.results.append(entry)
                             self.worker_stats[worker_id]["emails_found"] += len(results)
-                            
+
                 except Exception as ex:
                     print(f"[MASTER] Error decoding worker data from {worker_id}: {ex}")
-                    
+
             except Exception as ex:
                 print(f"[MASTER] Worker {worker_id} error: {ex}")
                 break
-                
+
         self.active_workers -= 1
         client.close()
-        print(f"[MASTER] Worker {worker_id} disconnected. Active workers: {self.active_workers}")
+        print(
+            f"[MASTER] Worker {worker_id} disconnected. Active workers: {self.active_workers}"
+        )
 
     def finish(self):
         if self.start_time is None:
@@ -157,34 +276,55 @@ class Master:
             minutes = 0
         else:
             minutes = (time.time() - self.start_time) / 60
-        
+
         print(f"\n[MASTER] Scraping finished in {minutes:.2f} minutes.")
         print(f"[MASTER] {len(self.results)} unique emails found.")
         print(f"[MASTER] {len(self.visited)} pages scraped.")
-        
+
         # Print worker statistics
         print("\n[MASTER] Worker Statistics:")
         for worker_id, stats in self.worker_stats.items():
             duration = time.time() - stats["start_time"]
-            urls_per_min = (stats["urls_processed"] / duration * 60) if duration > 0 else 0
-            print(f"  {worker_id}: {stats['urls_processed']} URLs, {stats['emails_found']} emails, {urls_per_min:.1f} URLs/min")
-        
+            urls_per_min = (
+                (stats["urls_processed"] / duration * 60) if duration > 0 else 0
+            )
+            print(
+                f"  {worker_id}: {stats['urls_processed']} URLs, {stats['emails_found']} emails, {urls_per_min:.1f} URLs/min"
+            )
+
         save_to_csv(self.results, OUTPUT_FILENAME)
         # Calculate total emails found (including duplicates)
         total_emails_found = sum(1 for r in self.results)
-        unique_emails_found = len({r['email'] for r in self.results})
-        log_statistics(",".join(self.seed_urls), len(self.visited), total_emails_found, unique_emails_found)
+        unique_emails_found = len({r["email"] for r in self.results})
+        log_statistics(
+            ",".join(self.seed_urls),
+            len(self.visited),
+            total_emails_found,
+            unique_emails_found,
+        )
+
 
 def main():
-    parser = argparse.ArgumentParser(description='DLSU Distributed Email Scraper Master')
-    parser.add_argument('--urls', nargs='+', required=True, help='Seed URLs (DLSU only)')
-    parser.add_argument('--port', type=int, default=5000, help='Port to listen on')
-    parser.add_argument('--time', type=int, default=1, help='Time limit in minutes')
-    parser.add_argument('--batch-size', type=int, default=5, help='URLs per batch per worker')
+    parser = argparse.ArgumentParser(
+        description="DLSU Distributed Email Scraper Master"
+    )
+    parser.add_argument(
+        "--urls", nargs="+", required=True, help="Seed URLs (DLSU only)"
+    )
+    parser.add_argument("--port", type=int, default=5672, help="Port to listen on")
+    parser.add_argument("--time", type=int, default=1, help="Time limit in minutes")
+    parser.add_argument(
+        "--batch-size", type=int, default=5, help="URLs per batch per worker"
+    )
     args = parser.parse_args()
-    master = Master(args.urls, port=args.port, time_limit_minutes=args.time, 
-                   urls_per_batch=args.batch_size)
+    master = Master(
+        args.urls,
+        port=args.port,
+        time_limit_minutes=args.time,
+        urls_per_batch=args.batch_size,
+    )
     master.start()
 
+
 if __name__ == "__main__":
-    main() 
+    main()

@@ -1,12 +1,16 @@
-import socket
-import time
 import json
-import threading
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from urllib.parse import urljoin, urlparse
+
+import pika
+
 from src.scraper import Scraper
-from urllib.parse import urlparse, urljoin
 
 DLSU_DOMAINS = ["dlsu.edu.ph"]
+URL_QUEUE = "url_queue"
+RESULT_QUEUE = "result_queue"
+
 
 def is_dlsu_url(url):
     try:
@@ -14,6 +18,7 @@ def is_dlsu_url(url):
         return any(domain in netloc for domain in DLSU_DOMAINS)
     except Exception:
         return False
+
 
 class Worker:
     def __init__(self, master_host, master_port, sub_nodes=3):
@@ -23,23 +28,31 @@ class Worker:
         self.sub_nodes = sub_nodes  # Number of sub-nodes for parallel processing
         self.executor = ThreadPoolExecutor(max_workers=sub_nodes)
         self.worker_id = f"{master_host}:{master_port}"
+        self.credentials = pika.PlainCredentials("rabbituser", "rabbit1234")
+        self.connection = pika.BlockingConnection(
+            pika.ConnectionParameters("localhost", 5672, "/", self.credentials)
+        )
+        self.channel = self.connection.channel()
+        self.channel.queue_declare(queue=URL_QUEUE)
+        self.channel.queue_declare(queue=RESULT_QUEUE)
 
     def scrape_url_with_sub_nodes(self, url):
         """Scrape a single URL using sub-nodes for parallel processing"""
         try:
             print(f"[WORKER-{self.worker_id}] Scraping: {url}")
             results = self.scraper.scrape_page(url)
-            
+
             # Find additional links for further scraping
             try:
                 import requests
                 from bs4 import BeautifulSoup
+
                 resp = requests.get(url, timeout=10)
-                soup = BeautifulSoup(resp.text, 'html.parser')
+                soup = BeautifulSoup(resp.text, "html.parser")
                 links = []
-                for a in soup.find_all('a', href=True):
+                for a in soup.find_all("a", href=True):
                     try:
-                        href = a['href']
+                        href = a["href"]
                         if isinstance(href, str):
                             link = urljoin(url, href)
                             if is_dlsu_url(link):
@@ -55,112 +68,186 @@ class Worker:
 
     def process_url_batch(self, urls_batch):
         """Process a batch of URLs using sub-nodes for parallel scraping"""
-        print(f"[WORKER-{self.worker_id}] Processing batch of {len(urls_batch)} URLs with {self.sub_nodes} sub-nodes")
-        
+        print(
+            f"[WORKER-{self.worker_id}] Processing batch of {len(urls_batch)} URLs with {self.sub_nodes} sub-nodes"
+        )
+
         # Submit URLs to sub-nodes for parallel processing
         future_to_url = {}
         for url in urls_batch:
             future = self.executor.submit(self.scrape_url_with_sub_nodes, url)
             future_to_url[future] = url
-        
+
         # Collect results from all sub-nodes
         all_results = []
         all_links = []
-        
+
         for future in as_completed(future_to_url):
             url = future_to_url[future]
             try:
                 result = future.result()
                 all_results.extend(result["results"])
                 all_links.extend(result["links"])
-                print(f"[WORKER-{self.worker_id}] Completed: {url} ({len(result['results'])} emails)")
+                print(
+                    f"[WORKER-{self.worker_id}] Completed: {url} ({len(result['results'])} emails)"
+                )
             except Exception as ex:
                 print(f"[WORKER-{self.worker_id}] Error processing {url}: {ex}")
-        
+
         # Remove duplicate links
         unique_links = list(set(all_links))
-        
+
         return {
             "results": all_results,
             "links": unique_links,
             "batch_stats": {
                 "urls_processed": len(urls_batch),
                 "emails_found": len(all_results),
-                "new_links_found": len(unique_links)
-            }
+                "new_links_found": len(unique_links),
+            },
         }
 
+    # def run(self):
+    #     while True:
+    #         try:
+    #             s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    #             s.connect((self.master_host, self.master_port))
+    #             print(f"[WORKER-{self.worker_id}] Connected to master")
+    #
+    #             while True:
+    #                 # Receive batch data
+    #                 data = s.recv(8192).decode().strip()
+    #                 if data == "NOURL" or not data:
+    #                     print(f"[WORKER-{self.worker_id}] No more URLs, disconnecting")
+    #                     s.close()
+    #                     return
+    #                 elif data == "WAIT":
+    #                     print(f"[WORKER-{self.worker_id}] Waiting for more URLs...")
+    #                     continue
+    #
+    #                 try:
+    #                     batch_info = json.loads(data)
+    #                     urls_batch = batch_info.get("urls", [])
+    #                     batch_id = batch_info.get("batch_id", 0)
+    #
+    #                     if not urls_batch:
+    #                         continue
+    #
+    #                     print(
+    #                         f"[WORKER-{self.worker_id}] Received batch {batch_id} with {len(urls_batch)} URLs"
+    #                     )
+    #
+    #                     # Process the batch using sub-nodes
+    #                     start_time = time.time()
+    #                     batch_results = self.process_url_batch(urls_batch)
+    #                     processing_time = time.time() - start_time
+    #
+    #                     # Add timing information
+    #                     batch_results["processing_time"] = processing_time
+    #                     batch_results["worker_id"] = self.worker_id
+    #                     batch_results["batch_id"] = batch_id
+    #
+    #                     # Send results back to master
+    #                     payload = json.dumps(batch_results)
+    #                     payload_bytes = payload.encode()
+    #                     length = len(payload_bytes)
+    #                     s.sendall(length.to_bytes(4, "big") + payload_bytes)
+    #
+    #                     print(
+    #                         f"[WORKER-{self.worker_id}] Batch {batch_id} completed in {processing_time:.2f}s"
+    #                     )
+    #
+    #                 except json.JSONDecodeError:
+    #                     print(
+    #                         f"[WORKER-{self.worker_id}] Invalid JSON received from master"
+    #                     )
+    #                     continue
+    #
+    #         except Exception as ex:
+    #             print(f"[WORKER-{self.worker_id}] Error: {ex}")
+    #             time.sleep(2)
+    #             continue
+    #         finally:
+    #             try:
+    #                 s.close()
+    #             except:
+    #                 pass
+
+    def stop(self):
+        self.connection.add_callback_threadsafe(self.channel.stop_consuming)
+
+    def url_callback(self, ch, method, properties, body):
+        message = body.decode().strip()
+        if message == "NOURL" or not message:
+            print(f"[WORKER-{self.worker_id}] No more URLs, disconnecting")
+            self.stop()
+        elif message == "WAIT":
+            return
+
+        try:
+            batch_info = json.loads(message)
+            urls_batch = batch_info.get("urls", [])
+            batch_id = batch_info.get("batch_id", 0)
+
+            if not urls_batch:
+                return
+
+            print(
+                f"[WORKER-{self.worker_id}] Received batch {batch_id} with {len(urls_batch)} URLs"
+            )
+
+            # Process the batch using sub-nodes
+            start_time = time.time()
+            batch_results = self.process_url_batch(urls_batch)
+            processing_time = time.time() - start_time
+
+            # Add timing information
+            batch_results["processing_time"] = processing_time
+            batch_results["worker_id"] = self.worker_id
+            batch_results["batch_id"] = batch_id
+
+            # Send results back to master
+            payload = json.dumps(batch_results)
+
+            self.channel.basic_publish(
+                exchange="", routing_key=RESULT_QUEUE, body=payload
+            )
+
+            print(
+                f"[WORKER-{self.worker_id}] Batch {batch_id} completed in {processing_time:.2f}s"
+            )
+
+        except json.JSONDecodeError:
+            print(f"[WORKER-{self.worker_id}] Invalid JSON received from master")
+            return
+
     def run(self):
-        while True:
-            try:
-                s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                s.connect((self.master_host, self.master_port))
-                print(f"[WORKER-{self.worker_id}] Connected to master")
-                
-                while True:
-                    # Receive batch data
-                    data = s.recv(8192).decode().strip()
-                    if data == "NOURL" or not data:
-                        print(f"[WORKER-{self.worker_id}] No more URLs, disconnecting")
-                        s.close()
-                        return
-                    elif data == "WAIT":
-                        print(f"[WORKER-{self.worker_id}] Waiting for more URLs...")
-                        continue
-                    
-                    try:
-                        batch_info = json.loads(data)
-                        urls_batch = batch_info.get("urls", [])
-                        batch_id = batch_info.get("batch_id", 0)
-                        
-                        if not urls_batch:
-                            continue
-                        
-                        print(f"[WORKER-{self.worker_id}] Received batch {batch_id} with {len(urls_batch)} URLs")
-                        
-                        # Process the batch using sub-nodes
-                        start_time = time.time()
-                        batch_results = self.process_url_batch(urls_batch)
-                        processing_time = time.time() - start_time
-                        
-                        # Add timing information
-                        batch_results["processing_time"] = processing_time
-                        batch_results["worker_id"] = self.worker_id
-                        batch_results["batch_id"] = batch_id
-                        
-                        # Send results back to master
-                        payload = json.dumps(batch_results)
-                        payload_bytes = payload.encode()
-                        length = len(payload_bytes)
-                        s.sendall(length.to_bytes(4, 'big') + payload_bytes)
-                        
-                        print(f"[WORKER-{self.worker_id}] Batch {batch_id} completed in {processing_time:.2f}s")
-                        
-                    except json.JSONDecodeError:
-                        print(f"[WORKER-{self.worker_id}] Invalid JSON received from master")
-                        continue
-                        
-            except Exception as ex:
-                print(f"[WORKER-{self.worker_id}] Error: {ex}")
-                time.sleep(2)
-                continue
-            finally:
-                try:
-                    s.close()
-                except:
-                    pass
+        self.channel.basic_consume(
+            queue=URL_QUEUE, on_message_callback=self.url_callback, auto_ack=True
+        )
+        self.channel.start_consuming()
+
 
 def main():
     import argparse
-    parser = argparse.ArgumentParser(description='DLSU Distributed Email Scraper Worker')
-    parser.add_argument('--host', type=str, required=True, help='Master host')
-    parser.add_argument('--port', type=int, default=5000, help='Master port')
-    parser.add_argument('--sub-nodes', type=int, default=3, help='Number of sub-nodes for parallel processing')
+
+    parser = argparse.ArgumentParser(
+        description="DLSU Distributed Email Scraper Worker"
+    )
+    parser.add_argument("--host", type=str, required=True, help="Master host")
+    parser.add_argument("--port", type=int, default=5000, help="Master port")
+    parser.add_argument(
+        "--sub-nodes",
+        type=int,
+        default=3,
+        help="Number of sub-nodes for parallel processing",
+    )
     args = parser.parse_args()
-    
+
     print(f"[WORKER] Starting worker with {args.sub_nodes} sub-nodes")
     worker = Worker(args.host, args.port, sub_nodes=args.sub_nodes)
     worker.run()
 
+
 if __name__ == "__main__":
-    main() 
+    main()

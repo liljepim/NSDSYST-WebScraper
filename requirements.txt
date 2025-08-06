@@ -1,6 +1,6 @@
 requests
 beautifulsoup4
 pandas
-multiprocessing
+pika
 pytest
 pdfminer.six   
