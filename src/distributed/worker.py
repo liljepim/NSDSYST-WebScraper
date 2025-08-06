@@ -1,4 +1,5 @@
 import json
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import urljoin, urlparse
@@ -28,6 +29,10 @@ class Worker:
         self.sub_nodes = sub_nodes  # Number of sub-nodes for parallel processing
         self.executor = ThreadPoolExecutor(max_workers=sub_nodes)
         self.worker_id = f"{master_host}:{master_port}"
+
+        self.should_stop = threading.Event()
+
+        # Setup default channel for RabbitMQ
         self.credentials = pika.PlainCredentials("rabbituser", "rabbit1234")
         self.connection = pika.BlockingConnection(
             pika.ConnectionParameters("localhost", 5672, "/", self.credentials)
@@ -35,6 +40,38 @@ class Worker:
         self.channel = self.connection.channel()
         self.channel.queue_declare(queue=URL_QUEUE)
         self.channel.queue_declare(queue=RESULT_QUEUE)
+
+        # Setup control channel for terminating
+        self.control_connection = pika.BlockingConnection(
+            pika.ConnectionParameters("localhost", 5672, "/", self.credentials)
+        )
+        self.control_channel = self.control_connection.channel()
+        self.control_channel.exchange_declare(
+            exchange="control_exchange", exchange_type="fanout"
+        )
+
+        # Generate unique queue name
+        result = self.control_channel.queue_declare(queue="", exclusive=True)
+        self.control_queue_name = result.method.queue
+
+        # Bind Queue
+        self.control_channel.queue_bind(
+            exchange="control_exchange", queue=self.control_queue_name
+        )
+        threading.Thread(target=self.listen_for_control, daemon=True).start()
+
+    def listen_for_control(self):
+        def callback(ch, method, properties, body):
+            message = body.decode().strip()
+            if message == "NOURL":
+                print("[WORKER] Received NOURL, stopping worker.")
+                self.should_stop.set()
+                self.stop()
+
+        self.control_channel.basic_consume(
+            queue=self.control_queue_name, on_message_callback=callback, auto_ack=True
+        )
+        self.control_channel.start_consuming()
 
     def scrape_url_with_sub_nodes(self, url):
         """Scrape a single URL using sub-nodes for parallel processing"""
@@ -177,6 +214,9 @@ class Worker:
         self.connection.add_callback_threadsafe(self.channel.stop_consuming)
 
     def url_callback(self, ch, method, properties, body):
+        if self.should_stop.is_set():
+            return
+
         message = body.decode().strip()
         if message == "NOURL" or not message:
             print(f"[WORKER-{self.worker_id}] No more URLs, disconnecting")
@@ -222,10 +262,20 @@ class Worker:
             return
 
     def run(self):
-        self.channel.basic_consume(
-            queue=URL_QUEUE, on_message_callback=self.url_callback, auto_ack=True
-        )
-        self.channel.start_consuming()
+        try:
+            self.channel.basic_consume(
+                queue=URL_QUEUE, on_message_callback=self.url_callback, auto_ack=True
+            )
+            self.channel.start_consuming()
+        except KeyboardInterrupt:
+            print("[WORKER] Interrupted by user")
+        finally:
+            print("[WORKER] Shutting down....")
+            self.executor.shutdown(wait=True)
+            if self.channel.is_open:
+                self.channel.close()
+            if self.connection.is_open:
+                self.connection.close()
 
 
 def main():

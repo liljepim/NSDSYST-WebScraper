@@ -53,19 +53,39 @@ class Master:
         self.running = True
         self.active_workers = 0
         self.worker_stats = {}  # Track worker performance
-        self.credentials = pika.PlainCredentials("rabbituser", "rabbit1234")
+
+        self.credentials = pika.PlainCredentials(
+            "rabbituser", "rabbit1234"
+        )  # Credentials for connecting to RabbitMQ
+
+        # Setup default channel for sending URL data
         self.connection = pika.BlockingConnection(
             pika.ConnectionParameters("localhost", 5672, "/", self.credentials)
         )
         self.channel = self.connection.channel()
         self.channel.queue_declare(queue=URL_QUEUE)
         self.channel.queue_declare(queue=RESULT_QUEUE)
+
+        # Purge Queues to ensure clean start
+        self.channel.queue_purge(queue=URL_QUEUE)
+        self.channel.queue_purge(queue=RESULT_QUEUE)
+
+        # Setup secondary channel for receiving RESULT data from workers
         self.result_connection = pika.BlockingConnection(
             pika.ConnectionParameters("localhost", 5672, "/", self.credentials)
         )
         self.result_channel = self.result_connection.channel()
         self.result_channel.queue_declare(queue=URL_QUEUE)
         self.result_channel.queue_declare(queue=RESULT_QUEUE)
+
+        # Setup control channel for sending stop signal
+        self.control_connection = pika.BlockingConnection(
+            pika.ConnectionParameters("localhost", 5672, "/", self.credentials)
+        )
+        self.control_channel = self.control_connection.channel()
+        self.control_channel.exchange_declare(
+            exchange="control_exchange", exchange_type="fanout"
+        )
 
     def result_callback(self, ch, method, properties, body):
         try:
@@ -96,9 +116,9 @@ class Master:
 
     def stop_consume(self):
         if hasattr(self, "result_channel") and self.result_channel.is_open:
-            self.result_channel.stop_consuming()
-        if hasattr(self, "result_connection") and self.result_connection.is_open:
-            self.result_connection.close()
+            self.result_channel.connection.add_callback_threadsafe(
+                self.result_channel.stop_consuming
+            )
 
     def get_results(self):
         self.result_channel.basic_consume(
@@ -157,8 +177,9 @@ class Master:
                 if not batch:
                     # Check if time limit is reached
                     if (time.time() - (self.start_time or 0)) >= self.time_limit:
-                        self.channel.basic_publish(
-                            exchange="", routing_key=URL_QUEUE, body=b"NOURL\n"
+                        self.channel.queue_purge(URL_QUEUE)
+                        self.control_channel.basic_publish(
+                            exchange="control_exchange", routing_key="", body=b"NOURL"
                         )
                         break
                     # Otherwise wait and check again
@@ -167,9 +188,13 @@ class Master:
                     )
                     time.sleep(2)  # Wait 2 seconds before checking again
                     continue
+        self.control_channel.basic_publish(
+            exchange="control_exchange", routing_key="", body=b"NOURL"
+        )
         self.running = False
         self.stop_consume()
         sub_thread.join()
+        self.result_connection.close()
         self.finish()
 
     def handle_worker(self, client, addr):
