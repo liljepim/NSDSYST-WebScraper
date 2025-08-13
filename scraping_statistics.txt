@@ -1,4 +1,4 @@
 Website: https://www.dlsu.edu.ph
-Pages scraped: 321
-Emails found: 3
-Unique emails found: 3
+Pages scraped: 4974
+Emails found: 86
+Unique emails found: 86

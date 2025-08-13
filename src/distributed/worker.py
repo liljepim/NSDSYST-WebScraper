@@ -159,7 +159,7 @@ class Worker:
             return
 
         try:
-            batch_info = json.loads(message)
+            batch_info = json.loads(body)
             urls_batch = batch_info.get("urls", [])
             batch_id = batch_info.get("batch_id", 0)
 

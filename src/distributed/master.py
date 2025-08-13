@@ -38,6 +38,7 @@ class Master:
         self.visited = set()
         self.results = []
         self.lock = threading.Lock()
+        self.urls_provessed = 0
         self.start_time = None
         self.scraper = Scraper()
         self.running = True
@@ -124,37 +125,48 @@ class Master:
         sub_thread = threading.Thread(target=self.get_results, daemon=True)
         sub_thread.start()
         while (time.time() - (self.start_time or 0)) < self.time_limit:
-            if not self.url_queue.empty():
-                batch = []
-                while not self.url_queue.empty() and len(batch) < self.urls_per_batch:
-                    curr_url = self.url_queue.get()
-                    if curr_url not in self.visited:
-                        self.visited.add(curr_url)
-                        batch.append(curr_url)
+            q = self.channel.queue_declare(queue=URL_QUEUE, passive=True)
+            if q.method.message_count == 0:
+                if not self.url_queue.empty():
+                    batch = []
+                    while (
+                        not self.url_queue.empty() and len(batch) < self.urls_per_batch
+                    ):
+                        curr_url = self.url_queue.get()
+                        if curr_url not in self.visited:
+                            self.visited.add(curr_url)
+                            batch.append(curr_url)
 
-                if batch:
-                    message = json.dumps({"urls": batch, "batch_id": len(self.visited)})
-                    self.channel.basic_publish(
-                        exchange="", routing_key=URL_QUEUE, body=message.encode()
-                    )
-
-                if not batch:
-                    # Check if time limit is reached
-                    if (time.time() - (self.start_time or 0)) >= self.time_limit:
-                        self.channel.queue_purge(URL_QUEUE)
-                        self.control_channel.basic_publish(
-                            exchange="control_exchange", routing_key="", body=b"NOURL"
+                    if batch:
+                        message = json.dumps(
+                            {"urls": batch, "batch_id": len(self.visited)}
                         )
-                        break
-                    # Otherwise wait and check again
-                    self.channel.basic_publish(
-                        exchange="", routing_key=URL_QUEUE, body=b"WAIT\n"
-                    )
-                    time.sleep(2)  # Wait 2 seconds before checking again
-                    continue
-        self.control_channel.basic_publish(
-            exchange="control_exchange", routing_key="", body=b"NOURL"
-        )
+                        self.channel.basic_publish(
+                            exchange="", routing_key=URL_QUEUE, body=message.encode()
+                        )
+
+                    if not batch:
+                        # Check if time limit is reached
+                        if (time.time() - (self.start_time or 0)) >= self.time_limit:
+                            self.channel.queue_purge(URL_QUEUE)
+                            self.control_channel.basic_publish(
+                                exchange="control_exchange",
+                                routing_key="",
+                                body=b"NOURL",
+                            )
+                            break
+                        # Otherwise wait and check again
+                        self.channel.basic_publish(
+                            exchange="", routing_key=URL_QUEUE, body=b"WAIT\n"
+                        )
+                        time.sleep(2)  # Wait 2 seconds before checking again
+                        continue
+        try:
+            self.control_channel.basic_publish(
+                exchange="control_exchange", routing_key="", body=b"NOURL"
+            )
+        except Exception as e:
+            print(e)
         self.running = False
         self.stop_consume()
         sub_thread.join()
