@@ -13,4 +13,4 @@ RUN pip install -U spacy
 RUN python -m spacy download en_core_web_sm
 
 ENTRYPOINT ["python", "-m", "src.distributed.worker"]
-CMD ["python", "-m", "src.distributed.worker", "--host", "localhost", "--port", "5000", "--sub-nodes", "3"]
+CMD ["python", "-m", "src.distributed.worker", "--host", "localhost", "--port", "5672", "--sub-nodes", "3"]
