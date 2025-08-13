@@ -1,0 +1,15 @@
+FROM python:3
+
+WORKDIR /webscraper
+
+COPY . .
+
+RUN pip3 install --upgrade pip
+
+RUN pip3 install --no-cache-dir -r requirements.txt
+
+RUN pip install -U pip setuptools wheel
+RUN pip install -U spacy
+RUN python -m spacy download en_core_web_sm
+
+CMD ["python3", "run_distributed_scraper.py", "--urls", "https://www.dlsu.edu.ph", "--time", "5","--workers", "3", "--sub-nodes", "2"]
